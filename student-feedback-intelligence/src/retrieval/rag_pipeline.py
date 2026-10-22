@@ -156,14 +156,20 @@ class RAGPipeline:
             f"Sentiment breakdown: {sentiment_str}.",
         ]
 
+        pos_count = sum(v for k, v in sentiment_counts.items() if "positive" in k.lower())
+
         if negative_share >= 0.5:
             summary_lines.append(
                 f"A majority ({negative_count} of {total}) of retrieved reviews express negative sentiment, "
                 "indicating a recurring concern worth addressing."
             )
-        elif negative_share > 0.3:
+        elif negative_share > 0.0:
             summary_lines.append(
                 f"A notable portion ({negative_count} of {total}) of retrieved reviews are negative."
+            )
+        elif pos_count == total and total > 0:
+            summary_lines.append(
+                "All retrieved reviews express exclusively positive sentiment (100% positive share)."
             )
         else:
             summary_lines.append(

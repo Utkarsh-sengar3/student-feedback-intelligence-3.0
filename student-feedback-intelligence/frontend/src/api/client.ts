@@ -12,37 +12,101 @@ import type {
   StatusResponse,
 } from './types';
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || '';
+const ENV_API_URL = import.meta.env.VITE_API_BASE_URL as string | undefined;
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const url = `${API_BASE}${path}`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
-    });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new Error((error as { detail?: string }).detail || `HTTP ${response.status}`);
-    }
-
-    return response.json() as Promise<T>;
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error('Request timed out. The server may be starting up — please try again in a moment.');
-    }
-    throw err;
+function getApiBase(): string {
+  if (ENV_API_URL && ENV_API_URL.trim()) {
+    return ENV_API_URL.trim().replace(/\/$/, '');
   }
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    // In Vite dev server, relative URLs trigger the Vite proxy to :8000
+    return import.meta.env.DEV ? '' : 'http://127.0.0.1:8000';
+  }
+  return '';
+}
+
+const API_BASE = getApiBase();
+
+// In-memory cache for static read endpoints to make page switching instant
+const requestCache = new Map<string, { timestamp: number; data: unknown }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+interface ExtendedRequestOptions extends RequestInit {
+  timeoutMs?: number;
+  skipCache?: boolean;
+  retries?: number;
+}
+
+async function request<T>(path: string, options?: ExtendedRequestOptions): Promise<T> {
+  const isGet = !options?.method || options.method === 'GET';
+  const cacheKey = `${path}`;
+
+  // Check client cache for static GET requests
+  if (isGet && !options?.skipCache && requestCache.has(cacheKey)) {
+    const cached = requestCache.get(cacheKey)!;
+    if (Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return cached.data as T;
+    }
+    requestCache.delete(cacheKey);
+  }
+
+  const url = `${API_BASE}${path}`;
+  // Longer timeout for assistant queries (90s) and 60s for standard requests to accommodate Render cold starts
+  const timeoutMs = options?.timeoutMs ?? (path.includes('/assistant') ? 90000 : 60000);
+  const maxRetries = options?.retries ?? (isGet ? 1 : 0);
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options?.headers,
+        },
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        // If 503 (Render waking up) and we have retries left, wait and retry
+        if (response.status === 503 && attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        const error = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error((error as { detail?: string }).detail || `HTTP ${response.status}`);
+      }
+
+      const data = (await response.json()) as T;
+
+      // Cache successful GET results for static datasets
+      if (isGet && (path.includes('/insights') || path.includes('/model-metrics') || path === '/health')) {
+        requestCache.set(cacheKey, { timestamp: Date.now(), data });
+      }
+
+      return data;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      lastError = err instanceof Error ? err : new Error(String(err));
+
+      // Retry on network errors or timeout if attempts remain
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 2500));
+        continue;
+      }
+    }
+  }
+
+  if (lastError && lastError.name === 'AbortError') {
+    throw new Error('Request timed out. The cloud server may be waking up from sleep (Render free tier) — please try again in a few seconds.');
+  }
+
+  throw lastError || new Error('Network request failed.');
 }
 
 export const api = {

@@ -45,7 +45,7 @@ export default function Dashboard() {
             <h1 className="page-title" style={{ margin: 0 }}>Insights Dashboard</h1>
           </div>
           <p className="page-description">
-            Priority-ranked actionable insights derived from the Phase 16 analysis pipeline.
+            Priority-ranked actionable insights and automated institutional recommendations derived from student feedback analysis.
           </p>
         </div>
 

@@ -30,15 +30,23 @@ app = FastAPI(
 # ============================================================
 
 cors_origins_env = os.getenv("CORS_ORIGINS", "")
+default_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8501",
+    "http://localhost:8502",
+    "http://localhost:8503",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8503",
+    "https://student-feedback-intelligence.vercel.app",
+    "https://student-feedback-intelligence-3-0.vercel.app",
+    "https://student-feedback-intelligence-3.0.vercel.app",
+]
 if cors_origins_env:
-    origins = [orig.strip() for orig in cors_origins_env.split(",") if orig.strip()]
+    origins = list(set(default_origins + [orig.strip() for orig in cors_origins_env.split(",") if orig.strip()]))
 else:
-    origins = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-    ]
+    origins = default_origins
 
 app.add_middleware(
     CORSMiddleware,
@@ -72,6 +80,26 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 feedback_service = FeedbackService()
 
+
+@app.on_event("startup")
+def startup_event():
+    import threading
+
+    def _warmup():
+        try:
+            from src.retrieval.rag_pipeline import RAGPipeline
+            rag = RAGPipeline()
+            if hasattr(rag.retriever, "warm_up"):
+                rag.retriever.warm_up()
+            print("Background retrieval pipeline warm-up completed.")
+        except Exception as e:
+            print(f"Background warm-up notice: {e}")
+
+    # Run in background daemon thread so port opens instantly
+    t = threading.Thread(target=_warmup, daemon=True)
+    t.start()
+
+
 # ============================================================
 # HEALTH & STATUS
 # ============================================================
@@ -87,6 +115,14 @@ def health():
         "service": "student-feedback-intelligence-api",
         "version": "2.1.0",
     }
+
+
+@app.get(
+    "/ping",
+    tags=["System"],
+)
+def ping():
+    return {"pong": True}
 
 
 @app.get(

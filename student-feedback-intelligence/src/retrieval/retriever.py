@@ -3,12 +3,98 @@ Semantic retriever using sentence-transformers and precomputed numpy embeddings.
 """
 from __future__ import annotations
 
+import re
 import threading
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Tuple
 
 import numpy as np
 import pandas as pd
+
+
+def parse_query_intent(
+    query: str,
+    domain: Optional[str] = None,
+    sentiment: Optional[str] = None,
+    top_k: int = 10,
+) -> Tuple[str, Optional[str], Optional[str], int]:
+    """
+    Extracts semantic intent from natural language queries:
+    - Target sentiment ('positive', 'negative', 'neutral')
+    - Target domain ('teacher review', 'course review', 'university review')
+    - Requested count (e.g. '5', '10')
+    - Cleaned query for dense vector encoding
+    """
+    q_lower = query.lower().strip()
+
+    # 1. Detect requested count if present in query
+    count_match = re.search(r'\b([1-9]|1[0-9]|20)\s+(?:positive|negative|neutral|feedback|reviews?|examples?|student|comments?)\b', q_lower)
+    if not count_match:
+        count_match = re.search(r'^(?:give\s+(?:me\s+)?)?([1-9]|1[0-9]|20)\b', q_lower)
+    
+    extracted_k = top_k
+    if count_match:
+        try:
+            val = int(count_match.group(1))
+            if 1 <= val <= 50:
+                extracted_k = val
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Sentiment intent resolution
+    resolved_sentiment = sentiment if sentiment and sentiment.lower() not in ("all", "none", "") else None
+    
+    if resolved_sentiment is None:
+        neg_patterns = [
+            r'\b(negative|bad|worst|poor|terrible|horrible|awful)\b',
+            r'\b(complaint|complaints|criticism|criticisms|issue|issues|concern|concerns|problem|problems)\b',
+            r'\b(waste\s+of\s+time|frustrating|disappointing|unfair)\b',
+            r'\bnot\s+(good|great|helpful|clear|fair|worth)\b',
+        ]
+        pos_patterns = [
+            r'\b(positive|good|great|best|excellent|awesome|amazing|wonderful|superb|outstanding)\b',
+            r'\b(praise|compliment|compliments|love|loved|helpful|inspiring|favorite|favourite)\b',
+        ]
+        neu_patterns = [
+            r'\b(neutral|mixed|average|moderate|mediocre)\b',
+        ]
+
+        is_neg = any(re.search(pat, q_lower) for pat in neg_patterns)
+        is_pos = any(re.search(pat, q_lower) for pat in pos_patterns)
+        is_neu = any(re.search(pat, q_lower) for pat in neu_patterns)
+
+        if re.search(r'\bnot\s+positive\b', q_lower):
+            is_pos = False
+            is_neg = True
+
+        if is_pos and not is_neg:
+            resolved_sentiment = "positive"
+        elif is_neg and not is_pos:
+            resolved_sentiment = "negative"
+        elif is_neu:
+            resolved_sentiment = "neutral"
+
+    # 3. Domain intent resolution
+    resolved_domain = domain if domain and domain.lower() not in ("all", "none", "") else None
+    
+    if resolved_domain is None:
+        if re.search(r'\b(teacher|teachers|professor|professors|prof|faculty|instructor|instructors|lecturer|lecturers|teaching|staff)\b', q_lower):
+            resolved_domain = "teacher review"
+        elif re.search(r'\b(course|courses|class|classes|syllabus|curriculum|exam|exams|midterm|midterms|grading|grades|homework|assignment|assignments|textbook|textbooks|quiz|quizzes)\b', q_lower):
+            resolved_domain = "course review"
+        elif re.search(r'\b(university|campus|college|admin|administration|library|cafeteria|canteen|food|wifi|wi-fi|internet|hostel|dorm|dormitory|facilities|facility|gym)\b', q_lower):
+            resolved_domain = "university review"
+
+    # 4. Cleaned query for dense vector encoding
+    cleaned_query = re.sub(r'^(?:give\s+(?:me\s+)?)?[0-9]+\s*', '', query, flags=re.IGNORECASE)
+    cleaned_query = re.sub(r'\b(positive|negative|neutral)\s+(?:feedback|reviews?|comments?)\b', 'feedback', cleaned_query, flags=re.IGNORECASE)
+    cleaned_query = re.sub(r'\b(positive|negative|neutral)\b', '', cleaned_query, flags=re.IGNORECASE)
+    cleaned_query = cleaned_query.strip()
+    if not cleaned_query:
+        cleaned_query = query
+
+    return cleaned_query, resolved_domain, resolved_sentiment, extracted_k
+
 
 
 class SemanticRetriever:
@@ -65,10 +151,21 @@ class SemanticRetriever:
                     self._model = SentenceTransformer(self._model_name)
         return self._model
 
-    def _encode_query(self, query: str) -> np.ndarray:
-        model = self._get_model()
-        vec = model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
-        return vec[0].astype(np.float32)
+    def warm_up(self):
+        """Pre-warm the sentence transformer model in background."""
+        try:
+            self._get_model()
+        except Exception as e:
+            print(f"Retriever warm-up notice: {e}")
+
+    def _encode_query(self, query: str) -> Optional[np.ndarray]:
+        try:
+            model = self._get_model()
+            vec = model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
+            return vec[0].astype(np.float32)
+        except Exception as exc:
+            print(f"Dense vector encoding notice ({exc}); using lexical fallback.")
+            return None
 
     def search(
         self,
@@ -78,40 +175,64 @@ class SemanticRetriever:
         sentiment: Optional[str] = None,
     ) -> pd.DataFrame:
         """
-        Cosine-similarity search over precomputed embeddings.
+        Cosine-similarity search over precomputed embeddings with intent extraction and lexical fallback.
 
         Returns a DataFrame with columns:
             row_index, similarity_score, text, domain, overall_sentiment
         """
-        query_vec = self._encode_query(query)
-
-        # Cosine similarity via dot product (embeddings are L2-normalized)
-        scores: np.ndarray = self._embeddings @ query_vec
-
-        # Build candidate DataFrame
-        n = len(scores)
-        df = pd.DataFrame(
-            {
-                "row_index": np.arange(n),
-                "similarity_score": scores,
-            }
+        cleaned_query, resolved_domain, resolved_sentiment, resolved_k = parse_query_intent(
+            query=query,
+            domain=domain,
+            sentiment=sentiment,
+            top_k=top_k,
         )
 
-        # Merge with metadata for filtering
-        meta = self.metadata[["row_index", "text", "domain", "overall_sentiment"]].copy()
-        df = df.merge(meta, on="row_index", how="left")
+        query_vec = self._encode_query(cleaned_query)
 
-        # Apply filters
-        if domain and domain.lower() not in ("all", "none", ""):
-            df = df[df["domain"].str.lower() == domain.strip().lower()]
+        if query_vec is not None:
+            # Cosine similarity via dot product (embeddings are L2-normalized)
+            scores: np.ndarray = self._embeddings @ query_vec
+            n = len(scores)
+            df = pd.DataFrame(
+                {
+                    "row_index": np.arange(n),
+                    "similarity_score": scores,
+                }
+            )
+            meta = self.metadata[["row_index", "text", "domain", "overall_sentiment"]].copy()
+            df = df.merge(meta, on="row_index", how="left")
+        else:
+            # Lexical keyword matching fallback
+            terms = [w.lower() for w in cleaned_query.split() if len(w) > 3 and w.lower() not in {"give", "from", "perspective", "about", "what", "with", "this", "that"}]
+            if not terms:
+                terms = [w.lower() for w in cleaned_query.split() if len(w) > 1]
 
-        if sentiment and sentiment.lower() not in ("all", "none", ""):
-            df = df[df["overall_sentiment"].str.lower() == sentiment.strip().lower()]
+            def lexical_score(text: str) -> float:
+                t = text.lower()
+                matches = sum(1 for term in terms if term in t)
+                return float(matches) / max(len(terms), 1)
+
+            meta = self.metadata[["row_index", "text", "domain", "overall_sentiment"]].copy()
+            meta["similarity_score"] = meta["text"].apply(lexical_score)
+            df = meta
+
+        # Apply domain filter if resolved
+        if resolved_domain and resolved_domain.lower() not in ("all", "none", ""):
+            filtered_domain = df[df["domain"].str.lower() == resolved_domain.strip().lower()]
+            if not filtered_domain.empty:
+                df = filtered_domain
+
+        # Apply sentiment filter if resolved
+        if resolved_sentiment and resolved_sentiment.lower() not in ("all", "none", ""):
+            filtered_sentiment = df[df["overall_sentiment"].str.lower() == resolved_sentiment.strip().lower()]
+            if not filtered_sentiment.empty:
+                df = filtered_sentiment
 
         # Sort by similarity descending
         df = df.sort_values("similarity_score", ascending=False)
 
-        return df.head(top_k).reset_index(drop=True)
+        # Return the top resolved_k rows
+        return df.head(resolved_k).reset_index(drop=True)
 
     def stats(self) -> dict:
         """Return statistics about the index."""

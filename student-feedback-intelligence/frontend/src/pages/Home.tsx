@@ -41,7 +41,7 @@ const FEATURES = [
   {
     icon: <Zap size={22} />,
     title: 'Actionable Insights',
-    desc: '85 concepts analysed across 16 pipeline phases. Priority-ranked recommendations backed by dataset evidence.',
+    desc: '85 core concepts analyzed across the student feedback corpus. Priority-ranked recommendations backed by empirical dataset evidence.',
     path: '/dashboard',
   },
 ];
@@ -134,18 +134,18 @@ export default function Home() {
         </div>
       </section>
 
-      {/* PIPELINE */}
+      {/* ARCHITECTURE */}
       <section style={{ padding: 'var(--space-8) 0 var(--space-12)' }}>
         <div className="container container--narrow">
           <div className="card card-body">
             <div className="section-label">Architecture</div>
-            <h2 className="section-title" style={{ fontSize: 'var(--font-size-2xl)' }}>18-Phase Research Pipeline</h2>
+            <h2 className="section-title" style={{ fontSize: 'var(--font-size-2xl)' }}>Feedback Intelligence Architecture</h2>
             <p style={{ color: 'var(--color-text-secondary)', lineHeight: 'var(--line-height-relaxed)' }}>
-              Built on the EduRABSA student review dataset, this platform implements an
-              end-to-end 18-phase ML pipeline: from raw data audit and quality filtering
-              through DistilBERT fine-tuning, multilabel category classification,
-              concern prioritisation, semantic embedding, and evidence-grounded
-              retrieval. All model metrics are real evaluation results from the test set.
+              Built on the EduRABSA student review dataset, this platform integrates an
+              end-to-end machine learning architecture: from raw data validation and quality filtering
+              through DistilBERT sentiment classification, multilabel aspect categorization,
+              concern prioritization, dense vector semantic embedding, and evidence-grounded
+              retrieval. All model metrics reflect verified evaluation results from the independent test set.
             </p>
             <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', marginTop: 'var(--space-4)' }}>
               <Link to="/models" className="btn btn--secondary">View Model Metrics</Link>

@@ -40,6 +40,17 @@ class ReviewsService:
                 self.df["overall_sentiment"].fillna("Unknown").astype(str)
             )
 
+        self._domain_counts = (
+            {str(k): int(v) for k, v in self.df["domain"].value_counts().to_dict().items()}
+            if not self.df.empty
+            else {}
+        )
+        self._sentiment_counts = (
+            {str(k): int(v) for k, v in self.df["overall_sentiment"].value_counts().to_dict().items()}
+            if not self.df.empty
+            else {}
+        )
+
     @classmethod
     def get_instance(cls) -> "ReviewsService":
         if cls._instance is None:
@@ -77,26 +88,12 @@ class ReviewsService:
 
         records = sliced.to_dict(orient="records")
 
-        # Global or filtered distribution counts
-        domain_counts = (
-            self.df["domain"].value_counts().to_dict()
-            if not self.df.empty
-            else {}
-        )
-        sentiment_counts = (
-            self.df["overall_sentiment"].value_counts().to_dict()
-            if not self.df.empty
-            else {}
-        )
-
         return {
             "total": total,
             "page": page,
             "page_size": page_size,
             "total_pages": total_pages,
-            "domain_counts": {str(k): int(v) for k, v in domain_counts.items()},
-            "sentiment_counts": {
-                str(k): int(v) for k, v in sentiment_counts.items()
-            },
+            "domain_counts": self._domain_counts,
+            "sentiment_counts": self._sentiment_counts,
             "reviews": records,
         }
