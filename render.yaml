@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: student-feedback-intelligence-api
+    name: student-feedback-intelligence-3-0-api
     runtime: python
     region: oregon
     plan: free
@@ -9,7 +9,9 @@ services:
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: CORS_ORIGINS
-        value: https://student-feedback-intelligence.vercel.app
+        value: https://student-feedback-intelligence-3-0.vercel.app,https://student-feedback-intelligence-3.0.vercel.app,https://student-feedback-intelligence.vercel.app,http://localhost:5173
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: PORT
+        value: "10000"
     healthCheckPath: /health
