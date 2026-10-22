@@ -1,36 +1,41 @@
-# AI-Based Student Feedback Sentiment Intelligence
+# Student Feedback Intelligence 3.0 — Core Package
 
-Professional end-to-end AI/ML project for transforming student feedback into
-explainable institutional intelligence.
+This directory contains the core full-stack application for the **Student Feedback Intelligence 3.0** platform:
+- `api/` — Production FastAPI REST API
+- `frontend/` — React 18 + Vite + TypeScript glassmorphic web platform
+- `src/retrieval/` — SemanticRetriever and deterministic RAG evidence synthesis pipeline
+- `data/processed/edurabsa/` — Precomputed sentence embeddings (`all-MiniLM-L6-v2`) and metadata
+- `render.yaml` — Deployment blueprint specification for Render
 
-## Current status
+For comprehensive architecture diagrams, machine learning evaluation benchmarks, live deployment links, and local setup guides, please refer to the primary root documentation:
 
-**Architecture initialized — Phase 1 pending.**
+👉 **[Root Project README.md](../README.md)**
 
-EduRABSA is intentionally NOT included in this repository/skeleton.
-Place the original dataset under:
+---
 
-`data/raw/edurabsa/`
+## Live Production Links
 
-Do not modify the raw dataset.
+* **Live Platform (Vercel):** [https://student-feedback-intelligence-3-0.vercel.app/](https://student-feedback-intelligence-3-0.vercel.app/)
+* **Backend API (Render):** [https://student-feedback-intelligence-3-0.onrender.com](https://student-feedback-intelligence-3-0.onrender.com)
+* **API Documentation (Swagger):** [https://student-feedback-intelligence-3-0.onrender.com/docs](https://student-feedback-intelligence-3-0.onrender.com/docs)
+* **Health Check:** [https://student-feedback-intelligence-3-0.onrender.com/health](https://student-feedback-intelligence-3-0.onrender.com/health)
+* **GitHub Repository:** [https://github.com/Utkarsh-sengar3/student-feedback-intelligence-3.0](https://github.com/Utkarsh-sengar3/student-feedback-intelligence-3.0)
 
-## Development principle
+---
 
-1. Inspect the real dataset first.
-2. Validate its schema and annotations.
-3. Build reproducible experiments in `notebooks/`.
-4. Move verified reusable logic into `src/`.
-5. Build API and frontend only after the intelligence layer is verified.
+## Quick Local Startup
 
-## Main layers
+### Backend (FastAPI)
+```powershell
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+```
+*(Or double-click `run_api.bat` on Windows).*
 
-- `data/` — raw and processed datasets
-- `notebooks/` — experimentation and analysis
-- `src/` — production ML/data logic
-- `models/` — trained model artifacts
-- `api/` — FastAPI backend
-- `frontend/` — Next.js/React application
-- `tests/` — automated tests
-- `docs/` — technical documentation
-- `config/` — configuration
-- `scripts/` — operational utilities
+### Frontend (React + Vite)
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Visit `http://localhost:5173` in your browser.
